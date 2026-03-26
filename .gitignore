@@ -1,0 +1,91 @@
+# =============================================================================
+# Python
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+MANIFEST
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env.local
+.env.*.local
+
+# =============================================================================
+# Project-specific
+# =============================================================================
+
+# Environment config (contains vault path and secrets)
+.env
+
+# ONNX model cache — large binary files, re-downloadable
+models/
+!models/.gitkeep
+
+# Vault backups created by rhizome
+.rhizome_backups/
+
+# Execution logs written by rhizome
+logs/
+!logs/.gitkeep
+
+# =============================================================================
+# Testing & coverage
+# =============================================================================
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# =============================================================================
+# Linting & type checking
+# =============================================================================
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+
+# =============================================================================
+# Build tools
+# =============================================================================
+.hatch/
+
+# =============================================================================
+# IDEs
+# =============================================================================
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains (PyCharm, etc.)
+.idea/
+*.iml
+
+# =============================================================================
+# OS
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini

@@ -1,0 +1,315 @@
+"""
+Typer command definitions.
+
+All CLI commands live here so main.py stays a thin bootstrap.  Each command
+follows the same pattern:
+  1. Configure logging
+  2. Load and validate settings
+  3. Delegate to the relevant pipeline / backup function
+  4. Surface errors cleanly (no unhandled tracebacks for expected failures)
+"""
+
+import sys
+from pathlib import Path
+
+import typer
+from loguru import logger
+
+app = typer.Typer(
+    name="rhizome",
+    help="Generate semantic [[wikilinks]] between Obsidian notes using local ONNX inference.",
+    add_completion=False,
+)
+
+
+_LEVEL_SYMBOLS: dict[str, str] = {
+    "DEBUG":    "[.]",
+    "INFO":     "[i]",
+    "SUCCESS":  "[-]",
+    "WARNING":  "[!]",
+    "ERROR":    "[x]",
+    "CRITICAL": "[!!]",
+}
+
+
+def _log_format(record: dict) -> str:
+    symbol = _LEVEL_SYMBOLS.get(record["level"].name, "[?]")
+    return f"<green>{{time:HH:mm:ss}}</green> <level>{symbol}</level> {{message}}\n"
+
+
+def _configure_logging(verbose: bool) -> None:
+    logger.remove()
+    level = "DEBUG" if verbose else "INFO"
+    logger.add(sys.stderr, format=_log_format, level=level, colorize=True)
+
+
+# ---------------------------------------------------------------------------
+# run
+# ---------------------------------------------------------------------------
+
+@app.command()
+def run(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
+) -> None:
+    """Execute the full semantic linking pipeline."""
+    _configure_logging(verbose)
+
+    from rhizome.config import load_settings
+    from rhizome.pipeline import run_pipeline
+    from rhizome.vault import discover_notes
+
+    try:
+        settings = load_settings()
+    except Exception as exc:
+        logger.error(f"Configuration error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    logger.info(f"Vault: {settings.vault_path} ({settings.vault_app})")
+    logger.info(
+        f"Settings: threshold={settings.similarity_threshold}, "
+        f"top_k={settings.top_k}, dry_run={settings.dry_run}"
+    )
+
+    # --- Backup prompt -------------------------------------------------------
+    # Skip entirely in dry-run mode — no files will be modified anyway.
+    backup_confirmed = False
+    if not settings.dry_run:
+        note_paths = discover_notes(settings.vault_path)
+        typer.echo(f"\n  Vault path  : {settings.vault_path}")
+        typer.echo(f"  Notes found : {len(note_paths)}")
+        backup_confirmed = typer.confirm(
+            "  Do you want to create a backup before proceeding?",
+            default=True,
+        )
+        typer.echo("")
+
+    try:
+        run_pipeline(settings, backup_confirmed=backup_confirmed)
+    except RuntimeError as exc:
+        # RuntimeError is raised by create_backup() on failure — show the
+        # message without a full traceback so the output stays readable.
+        logger.error(str(exc))
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:
+        logger.exception(f"Pipeline failed: {exc}")
+        raise typer.Exit(code=1) from exc
+
+
+# ---------------------------------------------------------------------------
+# status
+# ---------------------------------------------------------------------------
+
+@app.command()
+def status(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
+) -> None:
+    """Show vault statistics and model cache status."""
+    _configure_logging(verbose)
+
+    from rhizome.config import load_settings
+    from rhizome.pipeline import get_vault_stats
+
+    try:
+        settings = load_settings()
+    except Exception as exc:
+        logger.error(f"Configuration error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    stats = get_vault_stats(settings)
+
+    typer.echo("\nVault status")
+    typer.echo("------------")
+    typer.echo(f"  Path            : {stats['vault_path']}")
+    typer.echo(f"  App             : {stats['vault_app']}")
+    typer.echo(f"  Notes found     : {stats['note_count']}")
+    typer.echo(f"  Avg note length : {stats['avg_note_length_chars']} chars")
+    typer.echo("\nModel cache")
+    typer.echo(f"  Model           : {stats['model_name']}")
+    typer.echo(f"  Directory       : {stats['model_dir']}")
+    typer.echo(
+        f"  Cached          : "
+        f"{'yes' if stats['model_cached'] else 'no — will download on next run'}"
+    )
+    typer.echo("\nActive settings")
+    typer.echo(f"  Threshold       : {stats['similarity_threshold']}")
+    typer.echo(f"  Top-K           : {stats['top_k']}")
+    typer.echo(f"  Dry-run         : {stats['dry_run']}")
+    typer.echo("")
+
+
+# ---------------------------------------------------------------------------
+# clean
+# ---------------------------------------------------------------------------
+
+@app.command()
+def clean(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
+) -> None:
+    """Remove all '## Related Notes' sections added by this tool."""
+    _configure_logging(verbose)
+
+    from rhizome.config import load_settings
+    from rhizome.pipeline import get_clean_preview, run_clean
+
+    try:
+        settings = load_settings()
+    except Exception as exc:
+        logger.error(f"Configuration error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    preview = get_clean_preview(settings.vault_path)
+
+    if not preview:
+        typer.echo("No notes with rhizome sections found. Nothing to do.")
+        return
+
+    typer.echo(f"\n  {len(preview)} notes have a managed section:\n")
+    for p in preview[:20]:
+        typer.echo(f"    {p.stem}")
+    if len(preview) > 20:
+        typer.echo(f"    … and {len(preview) - 20} more")
+    typer.echo("")
+
+    confirmed = typer.confirm(
+        f"  Remove Related Notes sections from {len(preview)} notes?",
+        default=False,
+    )
+    if not confirmed:
+        typer.echo("Aborted.")
+        raise typer.Exit()
+
+    run_clean(settings.vault_path)
+
+
+# ---------------------------------------------------------------------------
+# backups
+# ---------------------------------------------------------------------------
+
+@app.command()
+def backups(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
+) -> None:
+    """List all available backups with their metadata."""
+    _configure_logging(verbose)
+
+    from rhizome.config import load_settings
+    from rhizome.vault.backup import list_backups
+
+    try:
+        settings = load_settings()
+    except Exception as exc:
+        logger.error(f"Configuration error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    available = list_backups(settings.vault_path)
+
+    if not available:
+        typer.echo("No backups found.")
+        return
+
+    typer.echo(f"\n{len(available)} backup(s) available:\n")
+    for i, entry in enumerate(available, start=1):
+        typer.echo(f"  [{i}] {entry.get('timestamp', 'unknown time')}")
+        typer.echo(f"       Notes : {entry.get('note_count', '?')}")
+        typer.echo(f"       Path  : {entry['backup_dir']}")
+        typer.echo(f"       rhizome v{entry.get('rhizome_version', '?')}")
+        typer.echo("")
+
+
+# ---------------------------------------------------------------------------
+# restore
+# ---------------------------------------------------------------------------
+
+@app.command()
+def restore(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
+) -> None:
+    """Interactively restore a previous backup."""
+    _configure_logging(verbose)
+
+    from rhizome.config import load_settings
+    from rhizome.vault.backup import list_backups, restore_backup
+
+    try:
+        settings = load_settings()
+    except Exception as exc:
+        logger.error(f"Configuration error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    available = list_backups(settings.vault_path)
+
+    if not available:
+        typer.echo("No backups found.")
+        raise typer.Exit()
+
+    typer.echo(f"\n{len(available)} backup(s) available:\n")
+    for i, entry in enumerate(available, start=1):
+        typer.echo(
+            f"  [{i}] {entry.get('timestamp', 'unknown')} "
+            f"— {entry.get('note_count', '?')} notes"
+        )
+    typer.echo("")
+
+    choice = typer.prompt(f"Select a backup to restore [1–{len(available)}]")
+    try:
+        index = int(choice) - 1
+        if not (0 <= index < len(available)):
+            raise ValueError
+    except ValueError:
+        typer.echo(f"Invalid selection: {choice}")
+        raise typer.Exit(code=1) from None
+
+    selected = available[index]
+    typer.echo(f"\nSelected: {selected['backup_dir']}")
+
+    # Default is N — accidental Enter does not overwrite the vault.
+    confirmed = typer.confirm(
+        "This will overwrite current vault contents. Confirm?",
+        default=False,
+    )
+    if not confirmed:
+        typer.echo("Aborted.")
+        raise typer.Exit()
+
+    try:
+        restore_backup(
+            backup_dir=Path(selected["backup_dir"]),
+            vault_path=settings.vault_path,
+        )
+    except RuntimeError as exc:
+        logger.error(str(exc))
+        raise typer.Exit(code=1) from exc
+
+
+# ---------------------------------------------------------------------------
+# download-model
+# ---------------------------------------------------------------------------
+
+@app.command(name="download-model")
+def download_model(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
+) -> None:
+    """
+    Pre-download and cache the ONNX model without running the pipeline.
+
+    Useful for Docker builds or CI environments where you want to bake the
+    model into an image layer separately from the pipeline execution.
+    """
+    _configure_logging(verbose)
+
+    from rhizome.config import load_settings
+    from rhizome.inference.model import PureONNXEmbeddingModel
+
+    try:
+        settings = load_settings()
+    except Exception as exc:
+        logger.error(f"Configuration error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    try:
+        PureONNXEmbeddingModel(settings.model_dir, settings.model_name)._load_model()
+    except RuntimeError as exc:
+        logger.error(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Model ready at {settings.model_dir}")

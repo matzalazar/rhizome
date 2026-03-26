@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rhizome"
+version = "0.1.0"
+description = "Semantic backlinks for your notes — generated locally, stored as [[wikilinks]]"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Matías Leonel Zalazar", email = "matzalazar@users.noreply.github.com" },
+]
+dependencies = [
+    "onnxruntime>=1.17.0",
+    "tokenizers>=0.15.0",
+    "requests>=2.31.0",
+    "numpy>=1.26.0",
+    "hnswlib>=0.8.0",
+    "loguru>=0.7.2",
+    "typer>=0.12.0",
+    "python-dotenv>=1.0.0",
+    "pydantic-settings>=2.2.0",
+]
+
+[project.scripts]
+rhizome = "rhizome.main:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.4.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rhizome"]
+
+[tool.hatch.build]
+sources = ["src"]
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
