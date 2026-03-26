@@ -35,14 +35,14 @@ ENV/
 .env
 
 # ONNX model cache — large binary files, re-downloadable
-models/
+models/*
 !models/.gitkeep
 
 # Vault backups created by rhizome
 .rhizome_backups/
 
 # Execution logs written by rhizome
-logs/
+logs/*
 !logs/.gitkeep
 
 # =============================================================================
