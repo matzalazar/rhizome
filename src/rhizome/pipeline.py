@@ -226,6 +226,7 @@ def get_vault_stats(settings: Settings) -> dict:
         "model_cached": model_cached,
         "model_dir": str(settings.model_dir),
         "similarity_threshold": settings.similarity_threshold,
+        "similarity_level": settings.similarity_level,
         "top_k": settings.top_k,
         "dry_run": settings.dry_run,
     }

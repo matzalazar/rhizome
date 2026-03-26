@@ -102,7 +102,7 @@ All settings are read from environment variables or a `.env` file.
 |------------------------|--------------------------------------------------|------------------------------------------------------|
 | `VAULT_PATH`           | *(required)*                                     | Absolute path to your vault directory                |
 | `VAULT_APP`            | `obsidian`                                       | Adapter to use: `obsidian` or `logseq`               |
-| `SIMILARITY_THRESHOLD` | `0.75`                                           | Minimum cosine similarity to create a link (0–1)     |
+| `SIMILARITY_THRESHOLD` | `medium` (0.75)                                  | Minimum cosine similarity. Accepts a float in [0, 1] or a named level: `low` (0.60), `medium` (0.75), `high` (0.88) |
 | `TOP_K`                | `5`                                              | Maximum related notes to surface per note            |
 | `MODEL_DIR`            | `./models`                                       | Directory for the cached ONNX model files            |
 | `MODEL_NAME`           | `Xenova/paraphrase-multilingual-MiniLM-L12-v2`  | HuggingFace model identifier (Xenova ONNX exports). If you change this, clear `MODEL_DIR` first to avoid stale cache. |

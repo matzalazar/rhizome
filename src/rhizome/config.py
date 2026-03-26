@@ -10,6 +10,14 @@ from pathlib import Path
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Named presets for SIMILARITY_THRESHOLD.
+# Users may write SIMILARITY_THRESHOLD=medium instead of SIMILARITY_THRESHOLD=0.75.
+_THRESHOLD_LEVELS: dict[str, float] = {
+    "low": 0.60,
+    "medium": 0.75,
+    "high": 0.88,
+}
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -45,6 +53,24 @@ class Settings(BaseSettings):
             raise ValueError(f"VAULT_APP must be one of {sorted(supported)}, got: {v!r}")
         return normalised
 
+    @field_validator("similarity_threshold", mode="before")
+    @classmethod
+    def resolve_threshold(cls, v: object) -> object:
+        """Accept named levels ('low', 'medium', 'high') or a numeric string / float."""
+        if isinstance(v, str):
+            lowered = v.strip().lower()
+            if lowered in _THRESHOLD_LEVELS:
+                return _THRESHOLD_LEVELS[lowered]
+            try:
+                return float(lowered)
+            except ValueError:
+                valid_levels = ", ".join(f'"{k}"' for k in _THRESHOLD_LEVELS)
+                raise ValueError(
+                    f"SIMILARITY_THRESHOLD must be one of {valid_levels}, "
+                    f"or a float in [0, 1]. Got: {v!r}"
+                )
+        return v  # let pydantic coerce numeric types
+
     @field_validator("similarity_threshold")
     @classmethod
     def threshold_in_range(cls, v: float) -> float:
@@ -68,6 +94,12 @@ class Settings(BaseSettings):
                 f"(e.g. Xenova/paraphrase-multilingual-MiniLM-L12-v2), got: {v!r}"
             )
         return v
+
+    @property
+    def similarity_level(self) -> str:
+        """Human-readable label for the current threshold ('low', 'medium', 'high', or 'custom')."""
+        reverse = {v: k for k, v in _THRESHOLD_LEVELS.items()}
+        return reverse.get(self.similarity_threshold, "custom")
 
 
 def load_settings() -> Settings:

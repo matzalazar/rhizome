@@ -174,7 +174,7 @@ def status(
         f"{'yes' if stats['model_cached'] else 'no — will download on next run'}"
     )
     typer.echo("\nActive settings")
-    typer.echo(f"  Threshold       : {stats['similarity_threshold']}")
+    typer.echo(f"  Threshold       : {stats['similarity_threshold']} ({stats['similarity_level']})")
     typer.echo(f"  Top-K           : {stats['top_k']}")
     typer.echo(f"  Dry-run         : {stats['dry_run']}")
     typer.echo("")
