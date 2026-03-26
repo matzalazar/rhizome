@@ -45,11 +45,19 @@ def get_vault_reader(config: Settings) -> VaultReader:
     app = config.vault_app.lower()
 
     if app == "obsidian":
-        return ObsidianVaultReader(config.vault_path, dry_run=config.dry_run)
+        return ObsidianVaultReader(
+            config.vault_path,
+            dry_run=config.dry_run,
+            exclude_dirs=config.exclude_dirs,
+        )
 
     if app == "logseq":
         from .logseq import LogseqVaultReader
-        return LogseqVaultReader(config.vault_path, dry_run=config.dry_run)
+        return LogseqVaultReader(
+            config.vault_path,
+            dry_run=config.dry_run,
+            exclude_dirs=config.exclude_dirs,
+        )
 
     raise ValueError(
         f"Unknown VAULT_APP {config.vault_app!r}. Supported values: obsidian, logseq"

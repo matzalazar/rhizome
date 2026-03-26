@@ -63,6 +63,17 @@ def _is_hidden(path: Path) -> bool:
     return any(part in _HIDDEN_DIR_NAMES for part in path.parts)
 
 
+def _is_excluded(rel_path: Path, exclude_dirs: list[str]) -> bool:
+    """True if *rel_path* falls under any of the user-specified directory prefixes."""
+    for excl in exclude_dirs:
+        try:
+            rel_path.relative_to(excl)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
 def _strip_frontmatter(text: str) -> str:
     return _FRONTMATTER_RE.sub("", text, count=1).strip()
 
@@ -76,15 +87,24 @@ def _strip_wikilinks(text: str) -> str:
 # Module-level functions (used by pipeline.py and tests)
 # ---------------------------------------------------------------------------
 
-def discover_notes(vault_path: Path) -> list[Path]:
+def discover_notes(
+    vault_path: Path,
+    exclude_dirs: list[str] | None = None,
+) -> list[Path]:
     """
-    Recursively find all .md files under *vault_path*, skipping hidden dirs.
+    Recursively find all .md files under *vault_path*, skipping hidden dirs
+    and any user-specified directory exclusions.
 
-    Returns paths sorted for deterministic ordering across runs.
+    *exclude_dirs* is a list of paths relative to *vault_path* (e.g. ["journal",
+    "archive/drafts"]).  Any file whose path starts with one of those prefixes
+    is omitted.  Returns paths sorted for deterministic ordering across runs.
     """
+    _exclude = exclude_dirs or []
     notes = [
         p for p in vault_path.rglob("*.md")
-        if p.is_file() and not _is_hidden(p.relative_to(vault_path))
+        if p.is_file()
+        and not _is_hidden(p.relative_to(vault_path))
+        and not _is_excluded(p.relative_to(vault_path), _exclude)
     ]
     notes.sort()
     logger.info(f"Discovered {len(notes)} markdown files under {vault_path}")
@@ -237,12 +257,18 @@ class ObsidianVaultReader:
     any vault app uniformly through the VaultReader Protocol.
     """
 
-    def __init__(self, vault_path: Path, dry_run: bool = False) -> None:
+    def __init__(
+        self,
+        vault_path: Path,
+        dry_run: bool = False,
+        exclude_dirs: list[str] | None = None,
+    ) -> None:
         self._vault_path = vault_path
         self._dry_run = dry_run
+        self._exclude_dirs = exclude_dirs or []
 
     def discover(self) -> Iterator[Note]:
-        paths = discover_notes(self._vault_path)
+        paths = discover_notes(self._vault_path, exclude_dirs=self._exclude_dirs)
         yield from parse_notes(paths)
 
     def write_links(self, note: Note, links: list[str]) -> None:

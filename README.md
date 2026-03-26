@@ -108,6 +108,7 @@ All settings are read from environment variables or a `.env` file.
 | `MODEL_NAME`           | `Xenova/paraphrase-multilingual-MiniLM-L12-v2`  | HuggingFace model identifier (Xenova ONNX exports). If you change this, clear `MODEL_DIR` first to avoid stale cache. |
 | `LOG_DIR`              | `./logs`                                         | Directory where per-run JSON logs are written        |
 | `DRY_RUN`              | `false`                                          | Preview proposed links without modifying any files   |
+| `EXCLUDE_DIRS`         | *(empty)*                                        | Comma-separated list of directories (relative to `VAULT_PATH`) to skip. Uses prefix matching: `journal` excludes `vault/journal/` but not `vault/project/journal/`. |
 
 ---
 
