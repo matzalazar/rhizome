@@ -172,7 +172,10 @@ def parse_notes(paths: list[Path]) -> list[Note]:
     return notes
 
 
-def build_related_section(linked_titles: list[str]) -> str:
+def build_related_section(
+    linked_titles: list[str],
+    header: str = RELATED_NOTES_HEADER,
+) -> str:
     """
     Render the auto-generated section as a markdown string.
 
@@ -181,7 +184,7 @@ def build_related_section(linked_titles: list[str]) -> str:
     so clean operations can target it unambiguously without risking false
     matches against organic user content.
     """
-    lines = [RHIZOME_START, RELATED_NOTES_HEADER, ""]
+    lines = [RHIZOME_START, header, ""]
     lines.extend(f"- [[{title}]]" for title in linked_titles)
     lines.append(RHIZOME_END)
     return "\n".join(lines)
@@ -194,7 +197,12 @@ def _strip_managed_section(content: str) -> str:
     return content
 
 
-def write_related_notes(note: Note, linked_titles: list[str], dry_run: bool = False) -> None:
+def write_related_notes(
+    note: Note,
+    linked_titles: list[str],
+    dry_run: bool = False,
+    header: str = RELATED_NOTES_HEADER,
+) -> None:
     """
     Append (or replace) the '## Related Notes' section in *note*.
 
@@ -202,7 +210,7 @@ def write_related_notes(note: Note, linked_titles: list[str], dry_run: bool = Fa
     Only the auto-generated block is touched; all content above it is preserved.
     """
     content_without_section = _strip_managed_section(note.raw)
-    new_section = build_related_section(linked_titles)
+    new_section = build_related_section(linked_titles, header=header)
     updated_content = content_without_section.rstrip("\n") + "\n\n" + new_section + "\n"
 
     if dry_run:

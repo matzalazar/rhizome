@@ -17,6 +17,7 @@ from .config import Settings
 from .inference.model import get_model
 from .inference.similarity import SimilarityStrategy, select_strategy
 from .vault import (
+    RELATED_NOTES_HEADER,
     count_managed_links,
     discover_notes,
     has_managed_section,
@@ -31,6 +32,8 @@ def run_pipeline(
     settings: Settings,
     strategy: SimilarityStrategy | None = None,
     backup_confirmed: bool = False,
+    target_note_path: Path | None = None,
+    related_notes_header: str = RELATED_NOTES_HEADER,
 ) -> None:
     """
     Full pipeline: backup -> discover -> parse -> embed -> index -> link -> write.
@@ -88,7 +91,21 @@ def run_pipeline(
     skipped_count = 0
     modified_notes: list[dict] = []
 
-    for i, note in enumerate(notes):
+    notes_to_process = notes
+    if target_note_path is not None:
+        notes_by_path = {note.path: note for note in notes}
+        selected_note = notes_by_path.get(target_note_path)
+        if selected_note is None:
+            raise ValueError(
+                "Target note is not available in the current scope: "
+                f"{target_note_path}"
+            )
+        notes_to_process = [selected_note]
+
+    note_index_by_path = {note.path: i for i, note in enumerate(notes)}
+
+    for note in notes_to_process:
+        i = note_index_by_path[note.path]
         related_indices_and_scores = neighbours[i]
 
         if not related_indices_and_scores:
@@ -96,7 +113,12 @@ def run_pipeline(
             continue
 
         linked_titles = [notes[idx].title for idx, _score in related_indices_and_scores]
-        write_related_notes(note, linked_titles, dry_run=settings.dry_run)
+        write_related_notes(
+            note,
+            linked_titles,
+            dry_run=settings.dry_run,
+            header=related_notes_header,
+        )
         updated_count += 1
         modified_notes.append({"title": note.title, "path": str(note.path), "links": linked_titles})
         logger.debug("{} → {}", note.title, ", ".join(f"[[{t}]]" for t in linked_titles))
@@ -109,7 +131,14 @@ def run_pipeline(
     )
 
     # --- 7. Write execution log ----------------------------------------------
-    _write_run_log(settings, run_start, modified_notes, updated_count, skipped_count, len(notes))
+    _write_run_log(
+        settings,
+        run_start,
+        modified_notes,
+        updated_count,
+        skipped_count,
+        len(notes_to_process),
+    )
 
 
 def _write_run_log(
@@ -157,6 +186,7 @@ def _write_run_log(
 def preview_pipeline(
     settings: Settings,
     strategy: SimilarityStrategy | None = None,
+    target_note_path: Path | None = None,
 ) -> dict:
     """
     Dry-run pass: compute what run_pipeline would do without writing anything.
@@ -187,6 +217,21 @@ def preview_pipeline(
         top_k=settings.top_k,
         threshold=settings.similarity_threshold,
     )
+
+    if target_note_path is not None:
+        note_indices = {note.path: i for i, note in enumerate(notes)}
+        target_index = note_indices.get(target_note_path)
+        if target_index is None:
+            raise ValueError(
+                "Target note is not available in the current scope: "
+                f"{target_note_path}"
+            )
+        target_neighbours = neighbours[target_index]
+        return {
+            "note_count": 1,
+            "notes_to_modify": int(bool(target_neighbours)),
+            "link_count": len(target_neighbours),
+        }
 
     return {
         "note_count": len(notes),

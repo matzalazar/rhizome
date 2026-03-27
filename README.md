@@ -161,6 +161,8 @@ and notes on compatibility requirements.
 ```
 rhizome run              Execute the full pipeline (dry-run preview + confirmation)
 rhizome run --yes        Skip confirmation and auto-confirm backup (CI / scripted)
+rhizome run --single-note
+                         Interactively choose one note to update while matching against the full vault
 rhizome audit            Analyze vault connectivity without modifying any file
 rhizome status           Show vault stats and model cache status
 rhizome clean            Remove all generated ## Related Notes sections
@@ -207,6 +209,17 @@ For fully non-interactive execution (CI / scripts):
 ```bash
 rhizome run --yes        # skip all prompts, auto-confirm backup
 ```
+
+To update just one note interactively while still comparing it against the full
+vault:
+
+```bash
+rhizome run --single-note
+```
+
+Rhizome will ask you to search by filename, pick the target note, and optionally
+override `TOP_K`, `SIMILARITY_THRESHOLD`, `CHUNK_SIZE`, `CHUNK_OVERLAP`, and the
+generated section header for that run only. The `.env` file remains unchanged.
 
 To preview proposed links without writing anything at all (no prompt):
 
