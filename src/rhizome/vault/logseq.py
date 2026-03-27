@@ -43,7 +43,7 @@ from pathlib import Path
 from loguru import logger
 
 from .base import Note, VaultReader
-from .obsidian import _is_excluded, remove_related_section, write_related_notes
+from .obsidian import _is_excluded, _is_included, remove_related_section, write_related_notes
 
 # Logseq system directories — never contain user notes.
 _HIDDEN_DIR_NAMES: frozenset[str] = frozenset(
@@ -123,19 +123,23 @@ def _extract_display_title(path: Path, raw: str) -> str:
 def _discover_logseq_paths(
     vault_path: Path,
     exclude_dirs: list[str] | None = None,
+    include_dirs: list[str] | None = None,
 ) -> list[Path]:
     """
     Recursively find all .md files, skipping Logseq system directories and
-    any user-specified directory exclusions.
+    applying any user-specified inclusion/exclusion rules.
 
     Scans the entire vault tree (not just pages/ or journals/) so the adapter
     works whether VAULT_PATH points to the vault root or to a subdirectory.
+    See obsidian.discover_notes() for full semantics of include/exclude.
     """
+    _include = include_dirs or []
     _exclude = exclude_dirs or []
     notes = [
         p for p in vault_path.rglob("*.md")
         if p.is_file()
         and not _is_hidden(p.relative_to(vault_path))
+        and _is_included(p.relative_to(vault_path), _include)
         and not _is_excluded(p.relative_to(vault_path), _exclude)
     ]
     notes.sort()
@@ -213,13 +217,19 @@ class LogseqVaultReader:
         vault_path: Path,
         dry_run: bool = False,
         exclude_dirs: list[str] | None = None,
+        include_dirs: list[str] | None = None,
     ) -> None:
         self._vault_path = vault_path
         self._dry_run = dry_run
         self._exclude_dirs = exclude_dirs or []
+        self._include_dirs = include_dirs or []
 
     def discover(self) -> Iterator[Note]:
-        paths = _discover_logseq_paths(self._vault_path, exclude_dirs=self._exclude_dirs)
+        paths = _discover_logseq_paths(
+            self._vault_path,
+            exclude_dirs=self._exclude_dirs,
+            include_dirs=self._include_dirs,
+        )
         yield from _parse_logseq_notes(paths)
 
     def write_links(self, note: Note, links: list[str]) -> None:

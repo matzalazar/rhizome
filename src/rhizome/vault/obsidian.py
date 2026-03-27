@@ -74,6 +74,23 @@ def _is_excluded(rel_path: Path, exclude_dirs: list[str]) -> bool:
     return False
 
 
+def _is_included(rel_path: Path, include_dirs: list[str]) -> bool:
+    """True if *rel_path* falls under any of the user-specified include prefixes.
+
+    When *include_dirs* is empty, every path is considered included (opt-in
+    whitelist: no filter means no restriction).
+    """
+    if not include_dirs:
+        return True
+    for incl in include_dirs:
+        try:
+            rel_path.relative_to(incl)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
 def _strip_frontmatter(text: str) -> str:
     return _FRONTMATTER_RE.sub("", text, count=1).strip()
 
@@ -90,20 +107,30 @@ def _strip_wikilinks(text: str) -> str:
 def discover_notes(
     vault_path: Path,
     exclude_dirs: list[str] | None = None,
+    include_dirs: list[str] | None = None,
 ) -> list[Path]:
     """
-    Recursively find all .md files under *vault_path*, skipping hidden dirs
-    and any user-specified directory exclusions.
+    Recursively find all .md files under *vault_path*, applying hidden-dir
+    filtering and any user-specified inclusion/exclusion rules.
 
-    *exclude_dirs* is a list of paths relative to *vault_path* (e.g. ["journal",
-    "archive/drafts"]).  Any file whose path starts with one of those prefixes
-    is omitted.  Returns paths sorted for deterministic ordering across runs.
+    *include_dirs* — whitelist of directory prefixes (relative to *vault_path*).
+    When provided, only files under these directories are considered.
+    When empty or None, all directories are in scope (default behaviour).
+
+    *exclude_dirs* — blacklist applied after *include_dirs*.  Any file whose
+    path starts with one of these prefixes is removed from the result.
+
+    Both lists use prefix matching via Path.relative_to(), so "journal"
+    matches "journal/note.md" but not "project/journal/note.md".
+    Returns paths sorted for deterministic ordering across runs.
     """
+    _include = include_dirs or []
     _exclude = exclude_dirs or []
     notes = [
         p for p in vault_path.rglob("*.md")
         if p.is_file()
         and not _is_hidden(p.relative_to(vault_path))
+        and _is_included(p.relative_to(vault_path), _include)
         and not _is_excluded(p.relative_to(vault_path), _exclude)
     ]
     notes.sort()
@@ -262,13 +289,19 @@ class ObsidianVaultReader:
         vault_path: Path,
         dry_run: bool = False,
         exclude_dirs: list[str] | None = None,
+        include_dirs: list[str] | None = None,
     ) -> None:
         self._vault_path = vault_path
         self._dry_run = dry_run
         self._exclude_dirs = exclude_dirs or []
+        self._include_dirs = include_dirs or []
 
     def discover(self) -> Iterator[Note]:
-        paths = discover_notes(self._vault_path, exclude_dirs=self._exclude_dirs)
+        paths = discover_notes(
+            self._vault_path,
+            exclude_dirs=self._exclude_dirs,
+            include_dirs=self._include_dirs,
+        )
         yield from parse_notes(paths)
 
     def write_links(self, note: Note, links: list[str]) -> None:

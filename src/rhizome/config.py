@@ -35,10 +35,21 @@ class Settings(BaseSettings):
     dry_run: bool = False
     log_dir: Path = Path("./logs")
     exclude_dirs: list[str] = []
+    include_dirs: list[str] = []
 
     @field_validator("exclude_dirs", mode="before")
     @classmethod
     def parse_exclude_dirs(cls, v: object) -> list[str]:
+        """Accept a comma-separated string (env var) or a list (Python)."""
+        if isinstance(v, str):
+            return [d.strip() for d in v.split(",") if d.strip()]
+        if isinstance(v, list):
+            return [str(item).strip() for item in v if str(item).strip()]
+        return []
+
+    @field_validator("include_dirs", mode="before")
+    @classmethod
+    def parse_include_dirs(cls, v: object) -> list[str]:
         """Accept a comma-separated string (env var) or a list (Python)."""
         if isinstance(v, str):
             return [d.strip() for d in v.split(",") if d.strip()]

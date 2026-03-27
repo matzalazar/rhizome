@@ -49,6 +49,7 @@ def get_vault_reader(config: Settings) -> VaultReader:
             config.vault_path,
             dry_run=config.dry_run,
             exclude_dirs=config.exclude_dirs,
+            include_dirs=config.include_dirs,
         )
 
     if app == "logseq":
@@ -57,6 +58,7 @@ def get_vault_reader(config: Settings) -> VaultReader:
             config.vault_path,
             dry_run=config.dry_run,
             exclude_dirs=config.exclude_dirs,
+            include_dirs=config.include_dirs,
         )
 
     raise ValueError(

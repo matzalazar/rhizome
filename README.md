@@ -111,6 +111,7 @@ All settings are read from environment variables or a `.env` file.
 | `LOG_DIR`              | `./logs`                                         | Directory where per-run JSON logs are written        |
 | `DRY_RUN`              | `false`                                          | Preview proposed links without modifying any files   |
 | `EXCLUDE_DIRS`         | *(empty)*                                        | Comma-separated list of directories (relative to `VAULT_PATH`) to skip. Uses prefix matching: `journal` excludes `vault/journal/` but not `vault/project/journal/`. |
+| `INCLUDE_DIRS`         | *(empty)*                                        | Comma-separated whitelist of directories to scan exclusively. When set, only files under these paths are processed. `EXCLUDE_DIRS` is applied afterwards, so you can narrow within the whitelist (e.g. `INCLUDE_DIRS=projects` + `EXCLUDE_DIRS=projects/drafts`). Leave empty to process the entire vault. |
 
 ---
 

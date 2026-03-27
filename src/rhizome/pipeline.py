@@ -49,7 +49,7 @@ def run_pipeline(
         create_backup(settings.vault_path)
 
     # --- 1. Discover notes ---------------------------------------------------
-    md_paths = discover_notes(settings.vault_path, settings.exclude_dirs)
+    md_paths = discover_notes(settings.vault_path, settings.exclude_dirs, settings.include_dirs)
     if not md_paths:
         logger.warning("No markdown files found — nothing to do.")
         return
@@ -164,7 +164,7 @@ def preview_pipeline(
         notes_to_modify  -- notes that would receive a Related Notes section
         link_count       -- total wikilinks that would be written
     """
-    md_paths = discover_notes(settings.vault_path, settings.exclude_dirs)
+    md_paths = discover_notes(settings.vault_path, settings.exclude_dirs, settings.include_dirs)
     if not md_paths:
         return {"note_count": 0, "notes_to_modify": 0, "link_count": 0}
 
@@ -194,22 +194,24 @@ def preview_pipeline(
 def get_clean_preview(
     vault_path: Path,
     exclude_dirs: list[str] | None = None,
+    include_dirs: list[str] | None = None,
 ) -> list[Path]:
     """Return paths of notes that contain a rhizome-managed section."""
-    md_paths = discover_notes(vault_path, exclude_dirs)
+    md_paths = discover_notes(vault_path, exclude_dirs, include_dirs)
     return [p for p in md_paths if has_managed_section(p)]
 
 
 def run_clean(
     vault_path: Path,
     exclude_dirs: list[str] | None = None,
+    include_dirs: list[str] | None = None,
 ) -> None:
     """
     Remove all '## Related Notes' sections added by this tool.
 
     Idempotent: running clean on an already-clean vault does nothing.
     """
-    md_paths = discover_notes(vault_path, exclude_dirs)
+    md_paths = discover_notes(vault_path, exclude_dirs, include_dirs)
     removed = sum(1 for p in md_paths if remove_related_section(p))
     logger.success(f"Removed 'Related Notes' sections from {removed} notes")
 
@@ -227,7 +229,7 @@ def audit_vault(
         potential_links    -- total wikilinks the pipeline would write
         notes_affected     -- notes that would receive at least one link
     """
-    md_paths = discover_notes(settings.vault_path, settings.exclude_dirs)
+    md_paths = discover_notes(settings.vault_path, settings.exclude_dirs, settings.include_dirs)
     if not md_paths:
         return {
             "note_count": 0,
@@ -274,7 +276,7 @@ def get_vault_stats(settings: Settings) -> dict:
 
     Returns a plain dict so the CLI layer can format it however it likes.
     """
-    md_paths = discover_notes(settings.vault_path, settings.exclude_dirs)
+    md_paths = discover_notes(settings.vault_path, settings.exclude_dirs, settings.include_dirs)
     notes = parse_notes(md_paths)
 
     avg_length = (

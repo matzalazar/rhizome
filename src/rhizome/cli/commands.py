@@ -117,7 +117,9 @@ def run(
             typer.echo("Aborted.")
             raise typer.Exit()
 
-        note_paths = discover_notes(settings.vault_path, settings.exclude_dirs)
+        note_paths = discover_notes(
+            settings.vault_path, settings.exclude_dirs, settings.include_dirs
+        )
         typer.echo(f"  Vault path  : {settings.vault_path}")
         typer.echo(f"  Notes found : {len(note_paths)}")
         backup_confirmed = typer.confirm(
@@ -200,7 +202,7 @@ def clean(
         logger.error(f"Configuration error: {exc}")
         raise typer.Exit(code=1) from exc
 
-    preview = get_clean_preview(settings.vault_path, settings.exclude_dirs)
+    preview = get_clean_preview(settings.vault_path, settings.exclude_dirs, settings.include_dirs)
 
     if not preview:
         typer.echo("No notes with rhizome sections found. Nothing to do.")
@@ -221,7 +223,7 @@ def clean(
         typer.echo("Aborted.")
         raise typer.Exit()
 
-    run_clean(settings.vault_path, settings.exclude_dirs)
+    run_clean(settings.vault_path, settings.exclude_dirs, settings.include_dirs)
 
 
 # ---------------------------------------------------------------------------
