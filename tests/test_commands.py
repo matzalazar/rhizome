@@ -26,6 +26,8 @@ def _mock_settings(*, dry_run: bool = False, vault_path: Path | None = None) -> 
     s.vault_app = "obsidian"
     s.exclude_dirs = []
     s.include_dirs = []
+    s.chunk_size = 512
+    s.chunk_overlap = 32
     return s
 
 

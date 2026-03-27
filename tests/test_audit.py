@@ -48,6 +48,8 @@ def _mock_settings(vault: Path) -> MagicMock:
     s.model_name = "Xenova/test-model"
     s.exclude_dirs = []
     s.include_dirs = []
+    s.chunk_size = 512
+    s.chunk_overlap = 32
     return s
 
 

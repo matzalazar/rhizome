@@ -7,7 +7,7 @@ a missing or malformed VAULT_PATH fails fast rather than crashing mid-run.
 
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Named presets for SIMILARITY_THRESHOLD.
@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     log_dir: Path = Path("./logs")
     exclude_dirs: list[str] = []
     include_dirs: list[str] = []
+    chunk_size: int = 512
+    chunk_overlap: int = 32
 
     @field_validator("exclude_dirs", mode="before")
     @classmethod
@@ -56,6 +58,29 @@ class Settings(BaseSettings):
         if isinstance(v, list):
             return [str(item).strip() for item in v if str(item).strip()]
         return []
+
+    @field_validator("chunk_size")
+    @classmethod
+    def chunk_size_valid(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(f"CHUNK_SIZE must be 0 (disabled) or >= 1, got: {v}")
+        return v
+
+    @field_validator("chunk_overlap")
+    @classmethod
+    def chunk_overlap_non_negative(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(f"CHUNK_OVERLAP must be >= 0, got: {v}")
+        return v
+
+    @model_validator(mode="after")
+    def chunk_overlap_less_than_chunk_size(self) -> "Settings":
+        if self.chunk_size > 0 and self.chunk_overlap >= self.chunk_size:
+            raise ValueError(
+                f"CHUNK_OVERLAP ({self.chunk_overlap}) must be less than "
+                f"CHUNK_SIZE ({self.chunk_size})"
+            )
+        return self
 
     @field_validator("vault_path")
     @classmethod

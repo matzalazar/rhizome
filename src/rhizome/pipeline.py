@@ -67,7 +67,9 @@ def run_pipeline(
     texts = [note.body or note.title for note in notes]
 
     logger.info(f"Encoding {len(texts)} notes …")
-    embeddings = model.encode(texts)
+    embeddings = model.encode(
+        texts, chunk_size=settings.chunk_size, chunk_overlap=settings.chunk_overlap
+    )
     logger.info("Encoding complete")
 
     # --- 4. Build similarity index -------------------------------------------
@@ -174,7 +176,9 @@ def preview_pipeline(
 
     model = get_model(settings.model_dir, settings.model_name)
     texts = [note.body or note.title for note in notes]
-    embeddings = model.encode(texts)
+    embeddings = model.encode(
+        texts, chunk_size=settings.chunk_size, chunk_overlap=settings.chunk_overlap
+    )
 
     chosen_strategy = strategy or select_strategy(len(notes))
     chosen_strategy.build(embeddings)
@@ -252,7 +256,9 @@ def audit_vault(
     # --- Potential new links (full pipeline, in-memory only) -----------------
     model = get_model(settings.model_dir, settings.model_name)
     texts = [note.body or note.title for note in notes]
-    embeddings = model.encode(texts)
+    embeddings = model.encode(
+        texts, chunk_size=settings.chunk_size, chunk_overlap=settings.chunk_overlap
+    )
 
     chosen_strategy = strategy or select_strategy(len(notes))
     chosen_strategy.build(embeddings)

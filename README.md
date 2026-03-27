@@ -36,6 +36,7 @@ No cloud API, no database, no daemon — the knowledge graph lives entirely in t
 - **Fully local** — ONNX Runtime on CPU, no GPU or network call after first run
 - **Multilingual** — default model handles 50+ languages; swap to any Xenova ONNX export via `MODEL_NAME`
 - **Scales automatically** — exact numpy search for small vaults, approximate HNSW for large ones
+- **Long-document aware** — notes exceeding 512 tokens are split into overlapping chunks; chunk embeddings are averaged so every section of the note influences its semantic representation
 - **Idempotent** — re-running the pipeline replaces the section, never duplicates it
 - **Safe by default** — prompts for a timestamped vault backup before writing anything
 - **Dry-run mode** — preview every proposed link without touching a single file
@@ -112,6 +113,17 @@ All settings are read from environment variables or a `.env` file.
 | `DRY_RUN`              | `false`                                          | Preview proposed links without modifying any files   |
 | `EXCLUDE_DIRS`         | *(empty)*                                        | Comma-separated list of directories (relative to `VAULT_PATH`) to skip. Uses prefix matching: `journal` excludes `vault/journal/` but not `vault/project/journal/`. |
 | `INCLUDE_DIRS`         | *(empty)*                                        | Comma-separated whitelist of directories to scan exclusively. When set, only files under these paths are processed. `EXCLUDE_DIRS` is applied afterwards, so you can narrow within the whitelist (e.g. `INCLUDE_DIRS=projects` + `EXCLUDE_DIRS=projects/drafts`). Leave empty to process the entire vault. |
+| `CHUNK_SIZE`           | `512`                                            | Maximum tokens per chunk when embedding long notes. Notes exceeding this limit are split into overlapping windows and their embeddings averaged into one vector. Set to `0` to disable chunking (notes truncated at 512 tokens). |
+| `CHUNK_OVERLAP`        | `32`                                             | Tokens shared between adjacent chunks. Preserves sentence context across chunk boundaries. Must be less than `CHUNK_SIZE`. Ignored when `CHUNK_SIZE=0`. |
+
+> [!IMPORTANT]
+> **`CHUNK_SIZE` directly affects embedding time.**
+> Each chunk requires a full forward pass through the model.
+> With the default (`512`), chunking only triggers for notes longer than ~400 words — typical PKM notes are unaffected.
+> Lowering `CHUNK_SIZE` increases the number of chunks per long note and embedding time grows proportionally:
+> a 2 000-token note with `CHUNK_SIZE=256` produces ~8 chunks instead of 4.
+> Set `CHUNK_SIZE=0` to disable chunking entirely and restore the original truncation behaviour,
+> at the cost of losing content beyond the first ~400 words of each note.
 
 ---
 

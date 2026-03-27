@@ -30,11 +30,53 @@ from loguru import logger
 _DEFAULT_MODEL_NAME = "Xenova/paraphrase-multilingual-MiniLM-L12-v2"
 _HF_BASE = "https://huggingface.co"
 
+# Default chunk size and overlap — mirror the defaults in config.py so that
+# callers outside the pipeline (tests, scripts) get sensible behaviour without
+# needing a Settings object.  The pipeline always passes explicit values from
+# settings.chunk_size / settings.chunk_overlap.
+# chunk_size=0 disables chunking: the full token sequence is passed to the model
+# and truncated at the hardware limit (512 for MiniLM).
+_MAX_TOKENS = 512
+_CHUNK_OVERLAP = 32
+
 
 def _model_urls(model_name: str) -> tuple[str, str]:
     """Derive ONNX model and tokenizer URLs from a HuggingFace model name."""
     base = f"{_HF_BASE}/{model_name}/resolve/main"
     return f"{base}/onnx/model.onnx", f"{base}/tokenizer.json"
+
+# ---------------------------------------------------------------------------
+# Chunking helper (public for unit testing)
+# ---------------------------------------------------------------------------
+
+def chunk_token_ids(
+    ids: list[int],
+    max_tokens: int = _MAX_TOKENS,
+    overlap: int = _CHUNK_OVERLAP,
+) -> list[list[int]]:
+    """
+    Split a flat token-ID sequence into overlapping windows.
+
+    When len(ids) <= max_tokens, a single-element list containing all ids
+    is returned (no chunking needed).  Otherwise, consecutive windows of
+    *max_tokens* tokens are produced with a stride of (max_tokens - overlap),
+    so adjacent chunks share *overlap* tokens to preserve context across
+    boundaries.  The final chunk always extends to the last token, even when
+    it is shorter than max_tokens.
+    """
+    if len(ids) <= max_tokens:
+        return [ids]
+    stride = max_tokens - overlap
+    chunks: list[list[int]] = []
+    start = 0
+    while start < len(ids):
+        end = min(start + max_tokens, len(ids))
+        chunks.append(ids[start:end])
+        if end == len(ids):
+            break
+        start += stride
+    return chunks
+
 
 # ---------------------------------------------------------------------------
 # Module-level singleton state
@@ -73,6 +115,7 @@ class PureONNXEmbeddingModel:
         # session and tokenizer are initialised by _load_model(), not here.
         self.session: ort.InferenceSession | None = None
         self.tokenizer = None
+        self._input_names: set[str] = set()
 
     # ------------------------------------------------------------------
     # Download
@@ -147,12 +190,15 @@ class PureONNXEmbeddingModel:
             sess_options=sess_options,
             providers=["CPUExecutionProvider"],
         )
+        self._input_names = {i.name for i in self.session.get_inputs()}
 
         # Rust-backed tokenizer — fast BPE/WordPiece with no Python overhead.
+        # Truncation is disabled: long documents are handled by chunk_token_ids()
+        # in encode(), which splits the full token sequence into overlapping
+        # windows and averages their embeddings instead of silently dropping tail content.
         from tokenizers import Tokenizer
 
         self.tokenizer = Tokenizer.from_file(str(self.tokenizer_path))
-        self.tokenizer.enable_truncation(max_length=128)
         self.tokenizer.enable_padding()
 
         logger.debug("ONNX inference session initialised")
@@ -161,46 +207,88 @@ class PureONNXEmbeddingModel:
     # Inference
     # ------------------------------------------------------------------
 
-    def encode(self, texts: list[str], normalize: bool = True) -> npt.NDArray[np.float32]:
+    def _embed_chunk(self, ids: list[int], mask: list[int]) -> npt.NDArray[np.float32]:
+        """
+        Run one forward pass for a token sequence that fits within _MAX_TOKENS.
+
+        *ids* and *mask* are already-tokenized sequences (no padding needed for
+        single-sequence inference — attention_mask handles real vs. padding tokens).
+        Returns an un-normalised (hidden_dim,) embedding.
+        """
+        input_ids = np.array([ids], dtype=np.int64)
+        attention_mask = np.array([mask], dtype=np.int64)
+        inputs: dict[str, npt.NDArray] = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+        }
+        # Some Xenova ONNX exports include token_type_ids; supply zeros when present.
+        if "token_type_ids" in self._input_names:
+            inputs["token_type_ids"] = np.zeros_like(input_ids)
+
+        outputs = self.session.run(None, inputs)  # type: ignore[union-attr]
+        token_embeddings = outputs[0][0]          # (seq_len, hidden_dim)
+        return mean_pool(token_embeddings, np.array(mask, dtype=float))
+
+    def _embed_chunked(
+        self,
+        ids: list[int],
+        chunk_size: int,
+        chunk_overlap: int,
+    ) -> npt.NDArray[np.float32]:
+        """
+        Embed a long token sequence by splitting it into overlapping chunks
+        and averaging the resulting embeddings.
+
+        Each chunk is at most *chunk_size* tokens long with *chunk_overlap*
+        tokens shared with the next chunk so that sentences split across a
+        boundary are still represented in both windows.  The final average gives
+        a single document vector with uniform weight across all sections of the note.
+        """
+        chunks = chunk_token_ids(ids, max_tokens=chunk_size, overlap=chunk_overlap)
+        chunk_embeddings = [
+            self._embed_chunk(chunk, [1] * len(chunk)) for chunk in chunks
+        ]
+        logger.debug(f"Long document ({len(ids)} tokens) embedded via {len(chunks)} chunks")
+        return np.mean(chunk_embeddings, axis=0).astype(np.float32)
+
+    def encode(
+        self,
+        texts: list[str],
+        normalize: bool = True,
+        chunk_size: int = _MAX_TOKENS,
+        chunk_overlap: int = _CHUNK_OVERLAP,
+    ) -> npt.NDArray[np.float32]:
         """
         Encode *texts* into sentence embeddings.
 
-        Returns shape (N, 384) float32.  When *normalize* is True (default)
-        each vector is L2-normalised so that dot product == cosine similarity,
-        which is what similarity.py expects.
+        Short texts (≤ *chunk_size* tokens) are encoded in a single forward pass.
+        Long texts are split into overlapping chunks of *chunk_size* tokens with
+        *chunk_overlap* tokens shared between adjacent windows; chunk embeddings
+        are averaged into one document vector so the output shape is always (N, 384).
+
+        *chunk_size* and *chunk_overlap* default to the module-level constants but
+        should be set from settings.chunk_size / settings.chunk_overlap in the
+        pipeline so users can tune them via environment variables.
+
+        When *normalize* is True (default) each vector is L2-normalised so that
+        dot product == cosine similarity, which is what similarity.py expects.
         """
         if self.session is None or self.tokenizer is None:
             raise RuntimeError(
                 "Model not initialised — call _load_model() before encode()."
             )
 
-        # Determine once which inputs this export expects.
-        input_names = {i.name for i in self.session.get_inputs()}
-
         embeddings: list[npt.NDArray[np.float32]] = []
 
         for text in texts:
             encoding = self.tokenizer.encode(text)
+            ids = encoding.ids
 
-            input_ids = np.array([encoding.ids], dtype=np.int64)
-            attention_mask = np.array([encoding.attention_mask], dtype=np.int64)
+            if chunk_size == 0 or len(ids) <= chunk_size:
+                embedding = self._embed_chunk(ids, encoding.attention_mask)
+            else:
+                embedding = self._embed_chunked(ids, chunk_size, chunk_overlap)
 
-            inputs_onnx: dict[str, npt.NDArray] = {
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
-            }
-            # Some Xenova ONNX exports include token_type_ids; supply zeros
-            # if the graph expects it so the session does not raise.
-            if "token_type_ids" in input_names:
-                inputs_onnx["token_type_ids"] = np.zeros_like(input_ids)
-
-            outputs = self.session.run(None, inputs_onnx)
-
-            # outputs[0] shape: (1, seq_len, hidden_size)
-            token_embeddings = outputs[0][0]  # (seq_len, hidden_size)
-            mask = np.array(encoding.attention_mask, dtype=float)
-
-            embedding = mean_pool(token_embeddings, mask)
             embeddings.append(embedding)
 
         result = np.stack(embeddings).astype(np.float32)  # (N, 384)

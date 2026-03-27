@@ -125,3 +125,65 @@ def test_similarity_level_custom_for_raw_float(vault):
 def test_similarity_level_custom_for_numeric_string(vault):
     s = Settings(vault_path=vault, similarity_threshold="0.80")
     assert s.similarity_level == "custom"
+
+
+# ---------------------------------------------------------------------------
+# CHUNK_SIZE and CHUNK_OVERLAP
+# ---------------------------------------------------------------------------
+
+
+def test_chunk_size_default(vault):
+    s = Settings(vault_path=vault)
+    assert s.chunk_size == 512
+
+
+def test_chunk_overlap_default(vault):
+    s = Settings(vault_path=vault)
+    assert s.chunk_overlap == 32
+
+
+def test_chunk_size_custom(vault):
+    s = Settings(vault_path=vault, chunk_size=512)
+    assert s.chunk_size == 512
+
+
+def test_chunk_overlap_custom(vault):
+    s = Settings(vault_path=vault, chunk_overlap=64)
+    assert s.chunk_overlap == 64
+
+
+def test_chunk_size_zero_disables_chunking(vault):
+    """CHUNK_SIZE=0 is a valid sentinel that disables chunking entirely."""
+    s = Settings(vault_path=vault, chunk_size=0)
+    assert s.chunk_size == 0
+
+
+def test_chunk_size_zero_bypasses_overlap_validation(vault):
+    """When chunking is disabled (CHUNK_SIZE=0) CHUNK_OVERLAP is irrelevant."""
+    s = Settings(vault_path=vault, chunk_size=0, chunk_overlap=999)
+    assert s.chunk_size == 0
+
+
+def test_chunk_size_negative_raises(vault):
+    with pytest.raises(ValidationError):
+        Settings(vault_path=vault, chunk_size=-1)
+
+
+def test_chunk_overlap_negative_raises(vault):
+    with pytest.raises(ValidationError):
+        Settings(vault_path=vault, chunk_overlap=-1)
+
+
+def test_chunk_overlap_equal_to_chunk_size_raises(vault):
+    with pytest.raises(ValidationError):
+        Settings(vault_path=vault, chunk_size=256, chunk_overlap=256)
+
+
+def test_chunk_overlap_greater_than_chunk_size_raises(vault):
+    with pytest.raises(ValidationError):
+        Settings(vault_path=vault, chunk_size=64, chunk_overlap=128)
+
+
+def test_chunk_overlap_zero_is_valid(vault):
+    s = Settings(vault_path=vault, chunk_size=256, chunk_overlap=0)
+    assert s.chunk_overlap == 0
