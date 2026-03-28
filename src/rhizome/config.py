@@ -56,8 +56,8 @@ class Settings(BaseSettings):
     model_name: str = "Xenova/paraphrase-multilingual-MiniLM-L12-v2"
     dry_run: bool = False
     log_dir: Path = Path("./logs")
-    exclude_dirs: list[str] = []
-    include_dirs: list[str] = []
+    exclude_dirs: Annotated[list[str], NoDecode] = []
+    include_dirs: Annotated[list[str], NoDecode] = []
     chunk_size: int = 512
     chunk_overlap: int = 32
     manual_override_fields: Annotated[list[str], NoDecode] = (
