@@ -190,7 +190,7 @@ def _write_run_log(
             "modified_notes": modified_notes,
         }
 
-        log_path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+        log_path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
         logger.debug(f"Run log written to {log_path}")
     except Exception as exc:
         logger.warning(f"Could not write run log: {exc}")
