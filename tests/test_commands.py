@@ -64,7 +64,12 @@ def test_dry_run_env_calls_run_pipeline_backup_not_confirmed():
     ):
         runner.invoke(app, ["run"])
 
-    mock_run.assert_called_once_with(settings, backup_confirmed=False)
+    mock_run.assert_called_once_with(
+        settings,
+        backup_confirmed=False,
+        target_note_paths=None,
+        related_notes_header="## Related Notes",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +115,12 @@ def test_yes_flag_calls_run_pipeline_with_backup_confirmed():
     ):
         runner.invoke(app, ["run", "--yes"])
 
-    mock_run.assert_called_once_with(settings, backup_confirmed=True)
+    mock_run.assert_called_once_with(
+        settings,
+        backup_confirmed=True,
+        target_note_paths=None,
+        related_notes_header="## Related Notes",
+    )
 
 
 def test_short_yes_flag():
@@ -124,7 +134,12 @@ def test_short_yes_flag():
         result = runner.invoke(app, ["run", "-y"])
 
     assert result.exit_code == 0, result.output
-    mock_run.assert_called_once_with(settings, backup_confirmed=True)
+    mock_run.assert_called_once_with(
+        settings,
+        backup_confirmed=True,
+        target_note_paths=None,
+        related_notes_header="## Related Notes",
+    )
 
 
 # ---------------------------------------------------------------------------

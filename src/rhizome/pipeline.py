@@ -8,6 +8,7 @@ or pass a custom implementation without touching this file.
 """
 
 import json
+from collections.abc import Collection
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from .config import Settings
 from .inference.model import get_model
 from .inference.similarity import SimilarityStrategy, select_strategy
 from .vault import (
+    RELATED_NOTES_HEADER,
     count_managed_links,
     discover_notes,
     has_managed_section,
@@ -31,6 +33,8 @@ def run_pipeline(
     settings: Settings,
     strategy: SimilarityStrategy | None = None,
     backup_confirmed: bool = False,
+    target_note_paths: Collection[Path] | None = None,
+    related_notes_header: str = RELATED_NOTES_HEADER,
 ) -> None:
     """
     Full pipeline: backup -> discover -> parse -> embed -> index -> link -> write.
@@ -41,6 +45,16 @@ def run_pipeline(
     *backup_confirmed* signals that the caller has already obtained user consent
     for a backup (or that no backup is needed, e.g. DRY_RUN).  The pipeline
     never prompts interactively — that responsibility belongs to cli/commands.py.
+
+    *target_note_paths* optionally narrows the final write pass to a selected
+    subset of discovered notes. Parsing, embedding, indexing, and neighbour
+    lookup still run across the full discovered vault so selected notes keep
+    matching against every in-scope note. Run logs and totals reflect only the
+    targeted subset when this parameter is provided.
+
+    *related_notes_header* controls the markdown heading written inside the
+    managed related-links block for this run. The block remains sentinel-wrapped
+    so replacement and cleanup stay idempotent even when the header text changes.
     """
     run_start = datetime.now(tz=timezone.utc)
 
@@ -88,7 +102,23 @@ def run_pipeline(
     skipped_count = 0
     modified_notes: list[dict] = []
 
-    for i, note in enumerate(notes):
+    notes_to_process = notes
+    if target_note_paths is not None:
+        notes_by_path = {note.path: note for note in notes}
+        missing_paths = [
+            path for path in target_note_paths if path not in notes_by_path
+        ]
+        if missing_paths:
+            raise ValueError(
+                "Selected note is not available in the current scope: "
+                f"{missing_paths[0]}"
+            )
+        notes_to_process = [notes_by_path[path] for path in target_note_paths]
+
+    note_index_by_path = {note.path: i for i, note in enumerate(notes)}
+
+    for note in notes_to_process:
+        i = note_index_by_path[note.path]
         related_indices_and_scores = neighbours[i]
 
         if not related_indices_and_scores:
@@ -96,7 +126,12 @@ def run_pipeline(
             continue
 
         linked_titles = [notes[idx].title for idx, _score in related_indices_and_scores]
-        write_related_notes(note, linked_titles, dry_run=settings.dry_run)
+        write_related_notes(
+            note,
+            linked_titles,
+            dry_run=settings.dry_run,
+            header=related_notes_header,
+        )
         updated_count += 1
         modified_notes.append({"title": note.title, "path": str(note.path), "links": linked_titles})
         logger.debug("{} → {}", note.title, ", ".join(f"[[{t}]]" for t in linked_titles))
@@ -109,7 +144,14 @@ def run_pipeline(
     )
 
     # --- 7. Write execution log ----------------------------------------------
-    _write_run_log(settings, run_start, modified_notes, updated_count, skipped_count, len(notes))
+    _write_run_log(
+        settings,
+        run_start,
+        modified_notes,
+        updated_count,
+        skipped_count,
+        len(notes_to_process),
+    )
 
 
 def _write_run_log(
@@ -157,14 +199,21 @@ def _write_run_log(
 def preview_pipeline(
     settings: Settings,
     strategy: SimilarityStrategy | None = None,
+    target_note_paths: Collection[Path] | None = None,
 ) -> dict:
     """
     Dry-run pass: compute what run_pipeline would do without writing anything.
 
     Returns:
-        note_count       -- total notes discovered
-        notes_to_modify  -- notes that would receive a Related Notes section
+        note_count       -- total notes discovered, or selected notes when
+                            *target_note_paths* is provided
+        notes_to_modify  -- notes that would receive a managed related-links
+                            section within the active scope
         link_count       -- total wikilinks that would be written
+
+    Like run_pipeline(), discovery, parsing, embedding, and matching still run
+    across the full discovered vault. *target_note_paths* only narrows which
+    notes contribute to the returned counts.
     """
     md_paths = discover_notes(settings.vault_path, settings.exclude_dirs, settings.include_dirs)
     if not md_paths:
@@ -187,6 +236,23 @@ def preview_pipeline(
         top_k=settings.top_k,
         threshold=settings.similarity_threshold,
     )
+
+    if target_note_paths is not None:
+        note_indices = {note.path: i for i, note in enumerate(notes)}
+        missing_paths = [
+            path for path in target_note_paths if path not in note_indices
+        ]
+        if missing_paths:
+            raise ValueError(
+                "Selected note is not available in the current scope: "
+                f"{missing_paths[0]}"
+            )
+        target_indices = [note_indices[path] for path in target_note_paths]
+        return {
+            "note_count": len(target_indices),
+            "notes_to_modify": sum(1 for idx in target_indices if neighbours[idx]),
+            "link_count": sum(len(neighbours[idx]) for idx in target_indices),
+        }
 
     return {
         "note_count": len(notes),

@@ -9,11 +9,19 @@ follows the same pattern:
   4. Surface errors cleanly (no unhandled tracebacks for expected failures)
 """
 
+import copy
+import shutil
 import sys
+import textwrap
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import typer
 from loguru import logger
+
+from rhizome.config import Settings
+from rhizome.vault import RELATED_NOTES_HEADER
 
 app = typer.Typer(
     name="rhizome",
@@ -31,6 +39,17 @@ _LEVEL_SYMBOLS: dict[str, str] = {
     "CRITICAL": "[!!]",
 }
 
+_THRESHOLD_PRESETS: dict[str, float] = {
+    "low": 0.60,
+    "medium": 0.75,
+    "high": 0.88,
+}
+
+_RECOMMENDED_TOP_K = 5
+_RECOMMENDED_THRESHOLD = "medium (0.75)"
+_RECOMMENDED_CHUNK_SIZE = 512
+_RECOMMENDED_CHUNK_OVERLAP = 32
+
 
 def _log_format(record: dict) -> str:
     symbol = _LEVEL_SYMBOLS.get(record["level"].name, "[?]")
@@ -41,6 +60,231 @@ def _configure_logging(verbose: bool) -> None:
     logger.remove()
     level = "DEBUG" if verbose else "INFO"
     logger.add(sys.stderr, format=_log_format, level=level, colorize=True)
+
+
+def _clone_settings(settings: Settings) -> Settings:
+    return copy.deepcopy(settings)
+
+
+def _replace_settings(settings: Settings, **updates: Any) -> Settings:
+    data = settings.model_dump()
+    data.update(updates)
+    return Settings.model_validate(data)
+
+
+def _format_threshold_value(value: float) -> str:
+    for label, preset_value in _THRESHOLD_PRESETS.items():
+        if abs(value - preset_value) < 1e-9:
+            return label
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def _echo_wrapped_detail(label: str, text: str) -> None:
+    width = max(60, shutil.get_terminal_size(fallback=(100, 20)).columns)
+    indent = f"  {label:<8}"
+    typer.echo(
+        textwrap.fill(
+            text,
+            width=width,
+            initial_indent=indent,
+            subsequent_indent=" " * len(indent),
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+    )
+
+
+def _echo_setting_help(name: str, default: str, effect: str) -> None:
+    typer.echo("")
+    typer.echo(name)
+    _echo_wrapped_detail("Default", default)
+    _echo_wrapped_detail("Effect", effect)
+
+
+def _echo_selected_notes(settings: Settings, selected_note_paths: Sequence[Path]) -> None:
+    typer.echo("")
+    typer.echo("Selected notes")
+    typer.echo("--------------")
+    for i, path in enumerate(selected_note_paths, start=1):
+        typer.echo(f"  [{i}] {path.relative_to(settings.vault_path)}")
+
+
+def _prompt_manual_targets(settings: Settings) -> list[Path]:
+    from rhizome.vault import discover_notes
+
+    note_paths = discover_notes(
+        settings.vault_path, settings.exclude_dirs, settings.include_dirs
+    )
+    if not note_paths:
+        typer.echo("No notes found in the current scope.")
+        raise typer.Exit(code=1)
+
+    selected_note_paths: list[Path] = []
+
+    while True:
+        typer.echo("")
+        query = typer.prompt("Search note filename", default="").strip()
+        if not query:
+            typer.echo("Please enter part of a filename or path.")
+            continue
+
+        lowered = query.lower()
+        matches = [
+            path for path in note_paths
+            if lowered in path.stem.lower()
+            or lowered in str(path.relative_to(settings.vault_path)).lower()
+        ]
+
+        if not matches:
+            typer.echo(f'No notes matched "{query}". Try again.')
+            continue
+
+        typer.echo("\nMatching notes")
+        typer.echo("--------------")
+        for i, path in enumerate(matches, start=1):
+            typer.echo(f"  [{i}] {path.relative_to(settings.vault_path)}")
+        typer.echo("")
+
+        choice = typer.prompt(f"Select a note [1-{len(matches)}]")
+        try:
+            index = int(choice) - 1
+            if not (0 <= index < len(matches)):
+                raise ValueError
+        except ValueError:
+            typer.echo(f"Invalid selection: {choice}")
+            continue
+
+        selected_path = matches[index]
+        if selected_path in selected_note_paths:
+            typer.echo(
+                "That note is already selected. Choose another one or finish the selection."
+            )
+        else:
+            selected_note_paths.append(selected_path)
+            typer.echo(
+                f"Added: {selected_path.relative_to(settings.vault_path)}"
+            )
+
+        _echo_selected_notes(settings, selected_note_paths)
+        typer.echo("")
+        if typer.confirm("Add another note?", default=False):
+            continue
+        if selected_note_paths:
+            return selected_note_paths
+        typer.echo("Select at least one note before finishing.")
+
+
+def _prompt_top_k(settings: Settings) -> Settings:
+    _echo_setting_help(
+        "TOP_K",
+        str(_RECOMMENDED_TOP_K),
+        "Higher values add more links, but they can also include weaker matches.",
+    )
+    while True:
+        raw_value = typer.prompt("TOP_K", default=str(settings.top_k)).strip()
+        try:
+            return _replace_settings(settings, top_k=int(raw_value))
+        except Exception as exc:
+            typer.echo(f"Invalid TOP_K: {exc}")
+
+
+def _prompt_similarity_threshold(settings: Settings) -> Settings:
+    _echo_setting_help(
+        "SIMILARITY_THRESHOLD",
+        _RECOMMENDED_THRESHOLD,
+        "Lower values surface more links; higher values keep results stricter.",
+    )
+    while True:
+        raw_value = typer.prompt(
+            "SIMILARITY_THRESHOLD",
+            default=_format_threshold_value(settings.similarity_threshold),
+        ).strip()
+        try:
+            return _replace_settings(settings, similarity_threshold=raw_value)
+        except Exception as exc:
+            typer.echo(f"Invalid SIMILARITY_THRESHOLD: {exc}")
+
+
+def _prompt_chunk_size(settings: Settings) -> Settings:
+    _echo_setting_help(
+        "CHUNK_SIZE",
+        str(_RECOMMENDED_CHUNK_SIZE),
+        "Lower values can help very long notes, but they increase embedding time.",
+    )
+    while True:
+        raw_chunk_size = typer.prompt("CHUNK_SIZE", default=str(settings.chunk_size)).strip()
+        try:
+            return _replace_settings(
+                settings,
+                chunk_size=int(raw_chunk_size),
+            )
+        except Exception as exc:
+            typer.echo(f"Invalid CHUNK_SIZE: {exc}")
+
+
+def _prompt_chunk_overlap(settings: Settings) -> Settings:
+    _echo_setting_help(
+        "CHUNK_OVERLAP",
+        str(_RECOMMENDED_CHUNK_OVERLAP),
+        "Higher values preserve more context but add extra work. It must stay below CHUNK_SIZE.",
+    )
+
+    while True:
+        raw_chunk_overlap = typer.prompt(
+            "CHUNK_OVERLAP", default=str(settings.chunk_overlap)
+        ).strip()
+        try:
+            return _replace_settings(
+                settings,
+                chunk_overlap=int(raw_chunk_overlap),
+            )
+        except Exception as exc:
+            typer.echo(f"Invalid CHUNK_OVERLAP: {exc}")
+
+
+def _prompt_related_notes_header(current_header: str) -> str:
+    _echo_setting_help(
+        "RELATED_NOTES_HEADER",
+        RELATED_NOTES_HEADER,
+        "Changes the section heading written in this run only. "
+        "Use a markdown header such as ## Suggested Links.",
+    )
+    if not typer.confirm("Change the section header for this run?", default=False):
+        return current_header
+
+    while True:
+        header = typer.prompt("RELATED_NOTES_HEADER", default=current_header).strip()
+        if header:
+            return header
+        typer.echo("RELATED_NOTES_HEADER cannot be empty.")
+
+
+def _prompt_runtime_overrides(
+    settings: Settings,
+    related_notes_header: str,
+) -> tuple[Settings, str]:
+    if not settings.manual_override_fields:
+        return settings, related_notes_header
+
+    if not typer.confirm("Review runtime settings for this run only?", default=False):
+        return settings, related_notes_header
+
+    typer.echo("")
+    typer.echo("Press Enter to keep the current value shown in each prompt.")
+    tuned = _clone_settings(settings)
+    for field_name in settings.manual_override_fields:
+        if field_name == "top_k":
+            tuned = _prompt_top_k(tuned)
+        elif field_name == "similarity_threshold":
+            tuned = _prompt_similarity_threshold(tuned)
+        elif field_name == "chunk_size":
+            tuned = _prompt_chunk_size(tuned)
+        elif field_name == "chunk_overlap":
+            tuned = _prompt_chunk_overlap(tuned)
+        elif field_name == "related_notes_header":
+            related_notes_header = _prompt_related_notes_header(related_notes_header)
+    typer.echo("")
+    return tuned, related_notes_header
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +299,14 @@ def run(
         "--yes",
         "-y",
         help="Skip confirmation prompt and auto-confirm backup (for CI / scripted usage)",
+    ),
+    manual: bool = typer.Option(
+        False,
+        "--manual",
+        help=(
+            "Interactively pick one or more notes to update while matching "
+            "against the full vault."
+        ),
     ),
 ) -> None:
     """
@@ -72,22 +324,46 @@ def run(
     from rhizome.pipeline import preview_pipeline, run_pipeline
     from rhizome.vault import discover_notes
 
+    if manual and yes:
+        raise typer.BadParameter(
+            "--manual cannot be used with --yes because note selection is interactive.",
+            param_hint="--manual",
+        )
+
     try:
         settings = load_settings()
     except Exception as exc:
         logger.error(f"Configuration error: {exc}")
         raise typer.Exit(code=1) from exc
 
+    target_note_paths: list[Path] = []
+    related_notes_header = RELATED_NOTES_HEADER
+    if manual:
+        target_note_paths = _prompt_manual_targets(settings)
+        settings, related_notes_header = _prompt_runtime_overrides(
+            settings,
+            related_notes_header,
+        )
+
     logger.info(f"Vault: {settings.vault_path} ({settings.vault_app})")
     logger.info(
         f"Settings: threshold={settings.similarity_threshold}, "
         f"top_k={settings.top_k}, dry_run={settings.dry_run}"
     )
+    if target_note_paths:
+        logger.info(
+            f"Manual targets: {len(target_note_paths)} selected"
+        )
 
     # --- DRY_RUN=true: legacy behaviour — preview only, no writes, no prompt --
     if settings.dry_run:
         try:
-            run_pipeline(settings, backup_confirmed=False)
+            run_pipeline(
+                settings,
+                backup_confirmed=False,
+                target_note_paths=target_note_paths or None,
+                related_notes_header=related_notes_header,
+            )
         except Exception as exc:
             logger.exception(f"Pipeline failed: {exc}")
             raise typer.Exit(code=1) from exc
@@ -96,11 +372,16 @@ def run(
     # --- Preview pass --------------------------------------------------------
     logger.info("Running preview …")
     try:
-        preview = preview_pipeline(settings)
+        preview = preview_pipeline(settings, target_note_paths=target_note_paths or None)
     except Exception as exc:
         logger.exception(f"Preview failed: {exc}")
         raise typer.Exit(code=1) from exc
 
+    if target_note_paths:
+        typer.echo("\n  Manual targets")
+        for path in target_note_paths:
+            typer.echo(f"    - {path.relative_to(settings.vault_path)}")
+        typer.echo(f"  Notes selected   : {len(target_note_paths)}")
     typer.echo(f"\n  Notes to modify  : {preview['notes_to_modify']}")
     typer.echo(f"  Links to write   : {preview['link_count']}")
     typer.echo("  (A timestamped backup will be created before writing.)")
@@ -122,6 +403,8 @@ def run(
         )
         typer.echo(f"  Vault path  : {settings.vault_path}")
         typer.echo(f"  Notes found : {len(note_paths)}")
+        if target_note_paths:
+            typer.echo(f"  Notes selected : {len(target_note_paths)}")
         backup_confirmed = typer.confirm(
             "  Do you want to create a backup before proceeding?",
             default=True,
@@ -129,7 +412,12 @@ def run(
         typer.echo("")
 
     try:
-        run_pipeline(settings, backup_confirmed=backup_confirmed)
+        run_pipeline(
+            settings,
+            backup_confirmed=backup_confirmed,
+            target_note_paths=target_note_paths or None,
+            related_notes_header=related_notes_header,
+        )
     except RuntimeError as exc:
         # RuntimeError is raised by create_backup() on failure — show the
         # message without a full traceback so the output stays readable.

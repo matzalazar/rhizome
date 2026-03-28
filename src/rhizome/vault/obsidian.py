@@ -6,8 +6,9 @@ Provides both:
   - ObsidianVaultReader class implementing the VaultReader Protocol
 
 Obsidian uses [[wikilinks]] for cross-note references and YAML frontmatter
-for metadata.  The generated links section is appended under "## Related Notes"
-so Obsidian's graph view picks them up automatically.
+for metadata. The generated links section defaults to "## Related Notes", but
+the heading can be overridden per run. The managed block is wrapped in sentinels
+so updates and cleanup remain unambiguous and idempotent.
 """
 
 import re
@@ -172,7 +173,10 @@ def parse_notes(paths: list[Path]) -> list[Note]:
     return notes
 
 
-def build_related_section(linked_titles: list[str]) -> str:
+def build_related_section(
+    linked_titles: list[str],
+    header: str = RELATED_NOTES_HEADER,
+) -> str:
     """
     Render the auto-generated section as a markdown string.
 
@@ -181,7 +185,7 @@ def build_related_section(linked_titles: list[str]) -> str:
     so clean operations can target it unambiguously without risking false
     matches against organic user content.
     """
-    lines = [RHIZOME_START, RELATED_NOTES_HEADER, ""]
+    lines = [RHIZOME_START, header, ""]
     lines.extend(f"- [[{title}]]" for title in linked_titles)
     lines.append(RHIZOME_END)
     return "\n".join(lines)
@@ -194,15 +198,24 @@ def _strip_managed_section(content: str) -> str:
     return content
 
 
-def write_related_notes(note: Note, linked_titles: list[str], dry_run: bool = False) -> None:
+def write_related_notes(
+    note: Note,
+    linked_titles: list[str],
+    dry_run: bool = False,
+    header: str = RELATED_NOTES_HEADER,
+) -> None:
     """
-    Append (or replace) the '## Related Notes' section in *note*.
+    Append (or replace) the managed related-links block in *note*.
 
-    Idempotent: running this twice with the same links produces the same file.
-    Only the auto-generated block is touched; all content above it is preserved.
+    *header* controls the markdown heading rendered inside the block and
+    defaults to ``## Related Notes``. Idempotent: running this twice with the
+    same links produces the same file. The managed content is identified by the
+    rhizome start/end sentinels (with legacy fixed-header cleanup retained for
+    migration), so only the auto-generated block is touched and all user content
+    above it is preserved.
     """
     content_without_section = _strip_managed_section(note.raw)
-    new_section = build_related_section(linked_titles)
+    new_section = build_related_section(linked_titles, header=header)
     updated_content = content_without_section.rstrip("\n") + "\n\n" + new_section + "\n"
 
     if dry_run:
@@ -217,7 +230,7 @@ def write_related_notes(note: Note, linked_titles: list[str], dry_run: bool = Fa
 
 def count_managed_links(note: Note) -> int:
     """
-    Count [[wikilinks]] inside the managed Related Notes section of *note*.
+    Count [[wikilinks]] inside the managed related-links block of *note*.
 
     Returns 0 if the note has no managed section.  Only the sentinel-wrapped
     block is inspected — manual links elsewhere in the note are not counted.

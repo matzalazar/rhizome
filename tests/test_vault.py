@@ -190,6 +190,12 @@ def test_build_related_section_format() -> None:
     assert section.index(RELATED_NOTES_HEADER) < section.index(RHIZOME_END)
 
 
+def test_build_related_section_accepts_custom_header() -> None:
+    section = build_related_section(["Alpha"], header="## Suggested Links")
+    assert "## Suggested Links" in section
+    assert RELATED_NOTES_HEADER not in section
+
+
 # ---------------------------------------------------------------------------
 # write_related_notes / idempotency
 # ---------------------------------------------------------------------------
@@ -205,6 +211,17 @@ def test_write_related_notes_appends_section(tmp_path: Path) -> None:
     assert RELATED_NOTES_HEADER in content
     assert "[[Alpha]]" in content
     assert "Original content." in content
+
+
+def test_write_related_notes_uses_custom_header(tmp_path: Path) -> None:
+    f = tmp_path / "Note.md"
+    f.write_text("# Note\n\nOriginal content.")
+    note = Note(path=f, title="Note", raw=f.read_text(), body="Original content.")
+
+    write_related_notes(note, ["Alpha"], header="## Suggested Links")
+
+    content = f.read_text()
+    assert "## Suggested Links" in content
 
 
 

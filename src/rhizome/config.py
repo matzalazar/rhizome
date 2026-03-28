@@ -6,9 +6,10 @@ a missing or malformed VAULT_PATH fails fast rather than crashing mid-run.
 """
 
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Named presets for SIMILARITY_THRESHOLD.
 # Users may write SIMILARITY_THRESHOLD=medium instead of SIMILARITY_THRESHOLD=0.75.
@@ -17,6 +18,27 @@ _THRESHOLD_LEVELS: dict[str, float] = {
     "medium": 0.75,
     "high": 0.88,
 }
+
+_MANUAL_OVERRIDE_FIELD_ALIASES: dict[str, str] = {
+    "top_k": "top_k",
+    "top-k": "top_k",
+    "similarity_threshold": "similarity_threshold",
+    "similarity-threshold": "similarity_threshold",
+    "threshold": "similarity_threshold",
+    "chunk_size": "chunk_size",
+    "chunk-size": "chunk_size",
+    "chunk_overlap": "chunk_overlap",
+    "chunk-overlap": "chunk_overlap",
+    "related_notes_header": "related_notes_header",
+    "header": "related_notes_header",
+}
+_DEFAULT_MANUAL_OVERRIDE_FIELDS = [
+    "top_k",
+    "similarity_threshold",
+    "chunk_size",
+    "chunk_overlap",
+    "related_notes_header",
+]
 
 
 class Settings(BaseSettings):
@@ -38,6 +60,9 @@ class Settings(BaseSettings):
     include_dirs: list[str] = []
     chunk_size: int = 512
     chunk_overlap: int = 32
+    manual_override_fields: Annotated[list[str], NoDecode] = (
+        _DEFAULT_MANUAL_OVERRIDE_FIELDS.copy()
+    )
 
     @field_validator("exclude_dirs", mode="before")
     @classmethod
@@ -58,6 +83,38 @@ class Settings(BaseSettings):
         if isinstance(v, list):
             return [str(item).strip() for item in v if str(item).strip()]
         return []
+
+    @field_validator("manual_override_fields", mode="before")
+    @classmethod
+    def parse_manual_override_fields(cls, v: object) -> list[str]:
+        """Accept a comma-separated string (env var) or a list (Python)."""
+        if isinstance(v, str):
+            raw_items = [item.strip() for item in v.split(",") if item.strip()]
+        elif isinstance(v, list):
+            raw_items = [str(item).strip() for item in v if str(item).strip()]
+        elif v is None:
+            return []
+        else:
+            raw_items = [str(v).strip()]
+
+        resolved: list[str] = []
+        unknown: list[str] = []
+        for item in raw_items:
+            canonical = _MANUAL_OVERRIDE_FIELD_ALIASES.get(item.lower())
+            if canonical is None:
+                unknown.append(item)
+                continue
+            if canonical not in resolved:
+                resolved.append(canonical)
+
+        if unknown:
+            valid_values = ", ".join(sorted(_MANUAL_OVERRIDE_FIELD_ALIASES))
+            raise ValueError(
+                "MANUAL_OVERRIDE_FIELDS contains unsupported values: "
+                f"{', '.join(unknown)}. Supported values: {valid_values}"
+            )
+
+        return resolved
 
     @field_validator("chunk_size")
     @classmethod

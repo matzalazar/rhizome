@@ -6,7 +6,7 @@ levels and the similarity_level property.
 import pytest
 from pydantic import ValidationError
 
-from rhizome.config import Settings
+from rhizome.config import _DEFAULT_MANUAL_OVERRIDE_FIELDS, Settings
 
 
 @pytest.fixture()
@@ -187,3 +187,49 @@ def test_chunk_overlap_greater_than_chunk_size_raises(vault):
 def test_chunk_overlap_zero_is_valid(vault):
     s = Settings(vault_path=vault, chunk_size=256, chunk_overlap=0)
     assert s.chunk_overlap == 0
+
+
+# ---------------------------------------------------------------------------
+# MANUAL_OVERRIDE_FIELDS
+# ---------------------------------------------------------------------------
+
+
+def test_manual_override_fields_default(vault):
+    s = Settings(vault_path=vault, manual_override_fields=_DEFAULT_MANUAL_OVERRIDE_FIELDS)
+    assert s.manual_override_fields == [
+        "top_k",
+        "similarity_threshold",
+        "chunk_size",
+        "chunk_overlap",
+        "related_notes_header",
+    ]
+
+
+def test_manual_override_fields_string_parsing(vault):
+    s = Settings(
+        vault_path=vault,
+        manual_override_fields="similarity_threshold, header",
+    )
+    assert s.manual_override_fields == [
+        "similarity_threshold",
+        "related_notes_header",
+    ]
+
+
+def test_manual_override_fields_deduplicates_and_normalizes(vault):
+    s = Settings(
+        vault_path=vault,
+        manual_override_fields=["threshold", "SIMILARITY_THRESHOLD", "top-k"],
+    )
+    assert s.manual_override_fields == ["similarity_threshold", "top_k"]
+
+
+def test_manual_override_fields_empty_list_allowed(vault):
+    s = Settings(vault_path=vault, manual_override_fields="")
+    assert s.manual_override_fields == []
+
+
+def test_manual_override_fields_invalid_value_raises(vault):
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(vault_path=vault, manual_override_fields="banana")
+    assert "MANUAL_OVERRIDE_FIELDS" in str(exc_info.value)
