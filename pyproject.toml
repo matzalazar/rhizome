@@ -18,7 +18,7 @@ dependencies = [
     "numpy>=1.26.0",
     "hnswlib>=0.8.0",
     "loguru>=0.7.3",
-    "typer>=0.12.0",
+    "typer>=0.25.1",
     "python-dotenv>=1.2.2",
     "pydantic-settings>=2.2.0",
 ]
