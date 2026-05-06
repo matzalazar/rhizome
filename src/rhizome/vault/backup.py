@@ -18,7 +18,7 @@ verify integrity before a restore.
 
 import json
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 
@@ -58,7 +58,7 @@ def create_backup(vault_path: Path) -> Path:
     Raises RuntimeError (with a human-readable message) if anything goes wrong
     so the pipeline can abort cleanly without an unhandled traceback.
     """
-    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
     backup_dir = _backup_root(vault_path) / f"backup_{timestamp}"
 
     logger.info(f"Creating backup at {backup_dir} …")
@@ -90,7 +90,7 @@ def create_backup(vault_path: Path) -> Path:
 
     manifest = {
         "vault_path": str(vault_path),
-        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+        "timestamp": datetime.now(tz=UTC).isoformat(),
         "note_count": note_count,
         "rhizome_version": _rhizome_version(),
     }

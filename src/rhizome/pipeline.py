@@ -9,7 +9,7 @@ or pass a custom implementation without touching this file.
 
 import json
 from collections.abc import Collection
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from loguru import logger
@@ -56,7 +56,7 @@ def run_pipeline(
     managed related-links block for this run. The block remains sentinel-wrapped
     so replacement and cleanup stay idempotent even when the header text changes.
     """
-    run_start = datetime.now(tz=timezone.utc)
+    run_start = datetime.now(tz=UTC)
 
     # --- 0. Backup (unless dry-run or caller opted out) ----------------------
     if backup_confirmed and not settings.dry_run:
