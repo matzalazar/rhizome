@@ -20,7 +20,7 @@ dependencies = [
     "loguru>=0.7.3",
     "typer>=0.25.1",
     "python-dotenv>=1.2.2",
-    "pydantic-settings>=2.14.0",
+    "pydantic-settings>=2.14.1",
 ]
 
 [project.scripts]
