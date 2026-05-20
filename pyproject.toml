@@ -14,8 +14,8 @@ authors = [
 dependencies = [
     "onnxruntime>=1.26.0",
     "tokenizers>=0.23.1",
-    "requests>=2.34.0",
-    "numpy>=2.4.4",
+    "requests>=2.34.2",
+    "numpy>=2.4.6",
     "hnswlib>=0.8.0",
     "loguru>=0.7.3",
     "typer>=0.25.1",
@@ -30,7 +30,7 @@ rhizome = "rhizome.main:app"
 dev = [
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
-    "ruff>=0.15.12",
+    "ruff>=0.15.13",
 ]
 
 [tool.hatch.build.targets.wheel]
