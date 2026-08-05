@@ -12,7 +12,7 @@ authors = [
     { name = "Matías Leonel Zalazar", email = "matias.zalazar@icloud.com" },
 ]
 dependencies = [
-    "onnxruntime>=1.26.0",
+    "onnxruntime>=1.27.0",
     "tokenizers>=0.23.1",
     "requests>=2.34.2",
     "numpy>=2.4.6",
